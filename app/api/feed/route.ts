@@ -9,8 +9,8 @@ const TTL_MS = 15 * 60 * 1000; // 15 minutes
 export async function GET(req: NextRequest) {
   const session = await auth();
 
-  if (!session?.access_token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.access_token || session.error) {
+    return NextResponse.json({ error: "reauth_required" }, { status: 401 });
   }
 
   const page = Math.max(1, parseInt(req.nextUrl.searchParams.get("page") ?? "1", 10));

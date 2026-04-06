@@ -32,6 +32,10 @@ export default function Feed() {
     setError(null);
     try {
       const res = await fetch("/api/feed?page=1");
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: VideoItem[] = await res.json();
       setVideos(data);
@@ -50,6 +54,10 @@ export default function Feed() {
     setLoadingMore(true);
     try {
       const res = await fetch(`/api/feed?page=${nextPage}`);
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: VideoItem[] = await res.json();
       setVideos((prev) => [...prev, ...data]);
