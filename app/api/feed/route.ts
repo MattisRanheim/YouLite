@@ -1,29 +1,31 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getFeed } from "@/lib/youtube";
 
-// Simple in-memory cache per access token
+// Simple in-memory cache keyed by "token:page"
 const cache = new Map<string, { data: unknown; expires: number }>();
 const TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
 
   if (!session?.access_token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const token = session.access_token;
-  const cached = cache.get(token);
+  const page = Math.max(1, parseInt(req.nextUrl.searchParams.get("page") ?? "1", 10));
+  const cacheKey = `${session.access_token}:${page}`;
+
+  const cached = cache.get(cacheKey);
   if (cached && cached.expires > Date.now()) {
     return NextResponse.json(cached.data);
   }
 
   try {
-    const feed = await getFeed(token);
-    cache.set(token, { data: feed, expires: Date.now() + TTL_MS });
+    const feed = await getFeed(session.access_token, page);
+    cache.set(cacheKey, { data: feed, expires: Date.now() + TTL_MS });
 
-    // Prune stale entries to avoid unbounded memory growth
+    // Prune stale entries
     cache.forEach((value, key) => {
       if (value.expires < Date.now()) cache.delete(key);
     });

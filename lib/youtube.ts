@@ -78,64 +78,117 @@ async function getUploadsPlaylistIds(
   return playlistIds;
 }
 
-async function getLatestVideoFromPlaylist(
+async function getVideosFromPlaylist(
   playlistId: string,
+  count: number,
   accessToken: string
-): Promise<VideoItem | null> {
+): Promise<VideoItem[]> {
   const res = await ytFetch(
     "playlistItems",
-    { part: "snippet", playlistId, maxResults: "1" },
+    { part: "snippet", playlistId, maxResults: String(count) },
     accessToken
   );
-  if (!res.ok) return null;
+  if (!res.ok) return [];
 
   const data = await res.json();
-  const item = data.items?.[0];
-  if (!item) return null;
+  const items: VideoItem[] = [];
 
-  const snippet = item.snippet;
-  const videoId: string = snippet?.resourceId?.videoId;
-  if (!videoId) return null;
+  for (const item of data.items ?? []) {
+    const snippet = item.snippet;
+    const videoId: string = snippet?.resourceId?.videoId;
+    if (!videoId) continue;
+    items.push({
+      videoId,
+      title: snippet.title ?? "Untitled",
+      channelName: snippet.channelTitle ?? "",
+      publishedAt: snippet.publishedAt ?? "",
+      thumbnail:
+        snippet.thumbnails?.high?.url ??
+        snippet.thumbnails?.medium?.url ??
+        snippet.thumbnails?.default?.url ??
+        "",
+    });
+  }
 
-  return {
-    videoId,
-    title: snippet.title ?? "Untitled",
-    channelName: snippet.channelTitle ?? "",
-    publishedAt: snippet.publishedAt ?? "",
-    thumbnail:
-      snippet.thumbnails?.high?.url ??
-      snippet.thumbnails?.medium?.url ??
-      snippet.thumbnails?.default?.url ??
-      "",
-  };
+  return items;
 }
 
-export async function getFeed(accessToken: string): Promise<VideoItem[]> {
+/** Parse ISO 8601 duration (e.g. "PT1M30S") into total seconds. */
+function parseDurationSeconds(iso: string): number {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  const h = parseInt(m[1] ?? "0", 10);
+  const min = parseInt(m[2] ?? "0", 10);
+  const sec = parseInt(m[3] ?? "0", 10);
+  return h * 3600 + min * 60 + sec;
+}
+
+/** Filter out Shorts by fetching durations and removing videos ≤ 60 seconds. */
+async function filterOutShorts(
+  videos: VideoItem[],
+  accessToken: string
+): Promise<VideoItem[]> {
+  if (videos.length === 0) return [];
+
+  const shortIds = new Set<string>();
+
+  for (let i = 0; i < videos.length; i += 50) {
+    const batch = videos.slice(i, i + 50);
+    const ids = batch.map((v) => v.videoId).join(",");
+    const res = await ytFetch(
+      "videos",
+      { part: "contentDetails", id: ids, maxResults: "50" },
+      accessToken
+    );
+    if (!res.ok) continue;
+
+    const data = await res.json();
+    for (const item of data.items ?? []) {
+      const duration: string = item.contentDetails?.duration ?? "";
+      if (parseDurationSeconds(duration) <= 120) {
+        shortIds.add(item.id as string);
+      }
+    }
+  }
+
+  return videos.filter((v) => !shortIds.has(v.videoId));
+}
+
+const PAGE_SIZE = 50;
+
+export async function getFeed(
+  accessToken: string,
+  page = 1
+): Promise<VideoItem[]> {
   const channelIds = await getSubscribedChannelIds(accessToken);
   if (channelIds.length === 0) return [];
 
   const playlistIds = await getUploadsPlaylistIds(channelIds, accessToken);
   if (playlistIds.length === 0) return [];
 
-  // Fetch latest video from each playlist concurrently (in batches to be safe)
+  // Fetch `page` videos per playlist so we have enough to fill page N after
+  // sorting and filtering. Capped at 10 to keep quota reasonable.
+  const videosPerPlaylist = Math.min(page, 10);
+
   const CONCURRENCY = 20;
   const results: VideoItem[] = [];
 
   for (let i = 0; i < playlistIds.length; i += CONCURRENCY) {
     const batch = playlistIds.slice(i, i + CONCURRENCY);
-    const videos = await Promise.all(
-      batch.map((pid) => getLatestVideoFromPlaylist(pid, accessToken))
+    const batched = await Promise.all(
+      batch.map((pid) => getVideosFromPlaylist(pid, videosPerPlaylist, accessToken))
     );
-    for (const v of videos) {
-      if (v) results.push(v);
-    }
+    for (const videos of batched) results.push(...videos);
   }
 
-  // Sort newest first, return top 50
+  // Sort newest first, strip Shorts, then return the slice for this page
   results.sort(
     (a, b) =>
       new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
   );
 
-  return results.slice(0, 50);
+  const withoutShorts = await filterOutShorts(results, accessToken);
+  const start = (page - 1) * PAGE_SIZE;
+
+  return withoutShorts.slice(start, start + PAGE_SIZE);
 }

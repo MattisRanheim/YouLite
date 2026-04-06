@@ -21,17 +21,22 @@ function SkeletonCard() {
 export default function Feed() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
 
   const loadFeed = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/feed");
+      const res = await fetch("/api/feed?page=1");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data: VideoItem[] = await res.json();
       setVideos(data);
+      setPage(1);
+      setHasMore(data.length === 50);
     } catch (err) {
       console.error(err);
       setError("Failed to load feed. Please try again.");
@@ -39,6 +44,23 @@ export default function Feed() {
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/feed?page=${nextPage}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: VideoItem[] = await res.json();
+      setVideos((prev) => [...prev, ...data]);
+      setPage(nextPage);
+      setHasMore(data.length === 50);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [page]);
 
   useEffect(() => {
     loadFeed();
@@ -73,15 +95,34 @@ export default function Feed() {
       )}
 
       {!loading && !error && videos.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
-          {videos.map((video) => (
-            <VideoCard
-              key={video.videoId}
-              video={video}
-              onClick={setActiveVideo}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
+            {videos.map((video) => (
+              <VideoCard
+                key={video.videoId}
+                video={video}
+                onClick={setActiveVideo}
+              />
+            ))}
+          </div>
+
+          {/* Load more */}
+          <div className="px-4 pb-8">
+            {hasMore ? (
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="w-full py-4 bg-surface hover:bg-surface-elevated border border-border rounded-xl text-text-muted hover:text-text-primary text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            ) : (
+              <p className="text-center text-text-muted text-xs py-4">
+                You&apos;ve reached the end
+              </p>
+            )}
+          </div>
+        </>
       )}
 
       {activeVideo && (
