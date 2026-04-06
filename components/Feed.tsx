@@ -33,7 +33,7 @@ export default function Feed() {
     try {
       const res = await fetch("/api/feed?page=1");
       if (res.status === 401) {
-        window.location.href = "/login";
+        setError("session_expired");
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -55,7 +55,7 @@ export default function Feed() {
     try {
       const res = await fetch(`/api/feed?page=${nextPage}`);
       if (res.status === 401) {
-        window.location.href = "/login";
+        setError("session_expired");
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -84,9 +84,21 @@ export default function Feed() {
         </div>
       )}
 
-      {!loading && error && (
+      {!loading && error === "session_expired" && (
         <div className="flex flex-col items-center justify-center py-20 gap-4 text-center px-4">
-          <p className="text-text-muted">{error}</p>
+          <p className="text-text-muted text-sm">Your session expired.</p>
+          <a
+            href="/login"
+            className="px-4 py-2 bg-surface-elevated hover:bg-border text-text-primary text-sm rounded-lg transition-colors"
+          >
+            Sign in again
+          </a>
+        </div>
+      )}
+
+      {!loading && error && error !== "session_expired" && (
+        <div className="flex flex-col items-center justify-center py-20 gap-4 text-center px-4">
+          <p className="text-text-muted text-sm">Failed to load feed. Please try again.</p>
           <button
             onClick={loadFeed}
             className="px-4 py-2 bg-surface-elevated hover:bg-border text-text-primary text-sm rounded-lg transition-colors"

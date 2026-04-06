@@ -2,7 +2,8 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
 export default auth((req) => {
-  const isLoggedIn = !!req.auth;
+  // Treat session with a refresh error as unauthenticated so the user can reach /login
+  const isLoggedIn = !!req.auth && !req.auth.error;
   const isLoginPage = req.nextUrl.pathname === "/login";
   const isApiAuth = req.nextUrl.pathname.startsWith("/api/auth");
 
